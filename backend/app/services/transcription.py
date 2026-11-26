@@ -45,6 +45,27 @@ class ModelLoadError(RuntimeError):
     """A model could not be loaded."""
 
 
+class CudaContextLost(RuntimeError):
+    """The CUDA context died underneath us and cannot be used again.
+
+    Distinct from an out-of-memory condition: a sleep/resume cycle, a driver
+    reset or a Windows TDR timeout leaves the process holding a context whose
+    every kernel launch fails with a generic ``RuntimeError: CUDA error``. The
+    models still look resident and ``torch.cuda.is_available()`` still says
+    yes, but nothing can run, and only a process restart or a move to CPU
+    recovers. Raised so the caller can retry on CPU instead of failing a job
+    that the machine is perfectly capable of finishing.
+    """
+
+
+def _is_cuda_fault(exc: BaseException) -> bool:
+    """True if ``exc`` looks like a dead CUDA context rather than plain OOM."""
+    text = str(exc).lower()
+    return "cuda error" in text or "cuda kernel errors" in text or (
+        "cudnn" in text and "status" in text
+    )
+
+
 class InferenceDisabled(RuntimeError):
     """Transcription was requested on a host configured without weights."""
 
@@ -178,6 +199,9 @@ class TranscriptionService:
         # Guards the accelerator: exactly one generate() at a time.
         self._inference_lock = threading.Lock()
         self._shared_hash: str | None = None
+        #: Set once the CUDA context has proven dead, so every later load and
+        #: retry goes straight to CPU instead of rediscovering the same fault.
+        self._gpu_disabled = False
 
     # --- introspection ----------------------------------------------------
     @property
@@ -313,7 +337,7 @@ class TranscriptionService:
         from transformers import WhisperForConditionalGeneration
 
         spec = self._specs[key]
-        device = resolve_device(self._config)
+        device = self._device_for_build()
         _apply_torch_determinism()
 
         logger.info("Loading model %s from %s", key, spec.source)
@@ -428,6 +452,38 @@ class TranscriptionService:
             self._evict_if_needed(keeping=key)
         return built
 
+    def _device_for_build(self) -> str:
+        """Where the next model should be placed.
+
+        Once the CUDA context has died this is pinned to CPU: torch still
+        reports the GPU as available, so asking it again would just rediscover
+        the same dead context.
+        """
+        if self._gpu_disabled:
+            return "cpu"
+        return resolve_device(self._config)
+
+    def _disable_gpu_and_evict(self) -> None:
+        """Forget every GPU-resident model after the context has died.
+
+        The cached objects hold CUDA storage that can no longer be touched --
+        not even to free it -- so they are simply dropped and rebuilt on CPU.
+        """
+        with self._cache_lock:
+            self._gpu_disabled = True
+            dropped = [k for k, m in self._loaded.items() if m.device == "cuda"]
+            for key in dropped:
+                self._loaded.pop(key, None)
+                if key in self._lru:
+                    self._lru.remove(key)
+            self._shared_peft = None
+        if dropped:
+            logger.warning(
+                "CUDA context lost; dropped %s and pinned this process to CPU. "
+                "Restart the server once the GPU is healthy again.",
+                ", ".join(sorted(dropped)),
+            )
+
     def _touch(self, key: str) -> None:
         """Mark ``key`` most-recently-used. Cache lock must be held."""
         if key in self._lru:
@@ -464,10 +520,14 @@ class TranscriptionService:
             return_tensors="pt",
             return_attention_mask=True,
         )
-        features = extracted.input_features.to(
-            device=loaded.device, dtype=torch.float32
-        )
-        attention_mask = extracted.attention_mask.to(device=loaded.device)
+
+        def _to_device():
+            # Moving the features is itself a CUDA call, and on a dead context
+            # it is the FIRST one to fail -- before generate() is ever reached.
+            return (
+                extracted.input_features.to(device=loaded.device, dtype=torch.float32),
+                extracted.attention_mask.to(device=loaded.device),
+            )
 
         def _decode():
             with torch.inference_mode():
@@ -480,18 +540,42 @@ class TranscriptionService:
                     generation_config=loaded.generation_config,
                 )
 
-        if loaded.disable_adapter:
-            # `pretrained` sharing the LoRA wrapper's base weights: switch the
-            # adapter off so the forward pass is the untouched base model.
-            with loaded.model.disable_adapter():
+        try:
+            features, attention_mask = _to_device()
+            if loaded.disable_adapter:
+                # `pretrained` sharing the LoRA wrapper's base weights: switch
+                # the adapter off so the forward pass is the untouched base
+                # model.
+                with loaded.model.disable_adapter():
+                    token_ids = _decode()
+            else:
                 token_ids = _decode()
-        else:
-            token_ids = _decode()
+        except RuntimeError as exc:
+            # Placement-time OOM is already handled in _build. What lands here
+            # is a context that was healthy at load time and has since died,
+            # which no amount of retrying on the GPU will fix.
+            if loaded.device == "cuda" and _is_cuda_fault(exc):
+                raise CudaContextLost(str(exc)) from exc
+            raise
 
         return loaded.processor.batch_decode(token_ids, skip_special_tokens=True)[0]
 
     def transcribe_wav(self, model_key: str, wav_path: Path) -> TranscriptionResult:
-        """Transcribe an already-converted 16 kHz mono WAV."""
+        """Transcribe an already-converted 16 kHz mono WAV.
+
+        If the CUDA context has died since the model was cached, the dead
+        models are dropped and the whole decode is retried once on CPU -- the
+        machine can still finish the job, just slower.
+        """
+        try:
+            return self._transcribe_wav_once(model_key, wav_path)
+        except CudaContextLost:
+            self._disable_gpu_and_evict()
+            return self._transcribe_wav_once(model_key, wav_path)
+
+    def _transcribe_wav_once(
+        self, model_key: str, wav_path: Path
+    ) -> TranscriptionResult:
         loaded = self.get(model_key)
         samples, sample_rate = load_samples(wav_path)
         duration = len(samples) / sample_rate if sample_rate else 0.0

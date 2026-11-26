@@ -199,9 +199,19 @@ class TranscriptionWorker:
                 await self._transcribe(db, job, media)
             except (AudioError, InferenceDisabled, ModelLoadError) as exc:
                 await self._fail(db, job, str(exc))
-            except Exception as exc:  # pragma: no cover - unexpected
+            except Exception:  # pragma: no cover - unexpected
+                # The traceback goes to the server log, where an operator can
+                # read it. What reaches the user is a sentence: raw exception
+                # text here meant a clinician saw multi-line CUDA tracebacks
+                # in the results panel.
                 logger.exception("Job %s failed", job_id)
-                await self._fail(db, job, f"{type(exc).__name__}: {exc}")
+                await self._fail(
+                    db,
+                    job,
+                    "The transcription failed unexpectedly. The details have "
+                    "been written to the server log. Retry, and report this if "
+                    "it keeps happening.",
+                )
 
     async def _transcribe(
         self, db: AsyncSession, job: TranscriptionJob, media: MediaFile

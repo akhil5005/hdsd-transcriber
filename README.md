@@ -239,8 +239,8 @@ disagreements, 0 missing files).
 cd backend
 .venv\Scripts\activate
 
-pytest -q                                   # 303 passed, 20 skipped
-HDSD_RUN_MODEL_TESTS=1 pytest -q            # 323 passed (~3.5 min on a GTX 1650)
+pytest -q                                   # 308 passed, 20 skipped
+HDSD_RUN_MODEL_TESTS=1 pytest -q            # 328 passed (~2 min on a GTX 1650)
 ruff check .
 ```
 
@@ -319,7 +319,7 @@ backend/
     services/    transcription, audio, generation, metrics, normalization,
                  comparison, jobs, media, benchmark, auth
   alembic/       migrations (0001 initial, 0002 requested_model_key)
-  tests/         303 tests
+  tests/         308 tests
 frontend/
   src/
     api/         axios client with refresh interceptor, endpoints

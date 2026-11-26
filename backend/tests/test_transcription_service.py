@@ -347,3 +347,131 @@ def test_touch_moves_a_key_to_most_recently_used() -> None:
         service._touch("pretrained")
 
     assert service._lru == ["full_ft", "lora", "pretrained"]
+
+
+# --- a CUDA context that dies after the models are already cached -----------
+#
+# A sleep/resume cycle, a driver reset or a Windows TDR timeout leaves the
+# process holding a context whose every kernel launch fails with a generic
+# "RuntimeError: CUDA error: unknown error". The models still look resident and
+# torch.cuda.is_available() still says yes, so nothing in the load path
+# notices: every job then failed instantly, forever, until the server was
+# restarted. These cover the detect-evict-retry-on-CPU path.
+
+CUDA_FAULT = (
+    "CUDA error: unknown error\n"
+    "CUDA kernel errors might be asynchronously reported at some other API "
+    "call, so the stacktrace below might be incorrect."
+)
+
+
+def _cuda_loaded(service, key="pretrained"):
+    """A LoadedModel that claims to be resident on a GPU."""
+    from app.services.transcription import LoadedModel
+
+    return LoadedModel(
+        key=key,
+        spec=service.specs[key],
+        model=None,
+        processor=None,
+        generation_config=None,
+        decoder_prefix=(50258, 50276, 50359, 50363),
+        gen_config_hash="c" * 64,
+        device="cuda",
+    )
+
+
+def test_cuda_fault_is_told_apart_from_an_ordinary_runtime_error() -> None:
+    from app.services.transcription import _is_cuda_fault
+
+    assert _is_cuda_fault(RuntimeError(CUDA_FAULT))
+    assert _is_cuda_fault(RuntimeError("CUDA error: out of memory"))
+    assert not _is_cuda_fault(RuntimeError("ffmpeg exited with code 1"))
+    assert not _is_cuda_fault(ValueError("bad sample rate"))
+
+
+def test_a_dead_cuda_context_retries_on_cpu_instead_of_failing(monkeypatch) -> None:
+    """The job must still finish -- the machine can do it, just slower."""
+    service = TranscriptionService(_settings())
+    monkeypatch.setattr(
+        "app.services.transcription.load_samples",
+        lambda path: ([0.0] * 16000, 16000),
+    )
+
+    # get() hands back a GPU model first; after the eviction it rebuilds on CPU.
+    devices_served = []
+
+    def fake_get(key):
+        device = "cpu" if service._gpu_disabled else "cuda"
+        devices_served.append(device)
+        loaded = _cuda_loaded(service) if device == "cuda" else _stub_loaded(service)
+        return loaded
+
+    monkeypatch.setattr(service, "get", fake_get)
+
+    def fake_generate(loaded, samples, sample_rate):
+        if loaded.device == "cuda":
+            from app.services.transcription import CudaContextLost
+
+            raise CudaContextLost(CUDA_FAULT)
+        return "ठीक"
+
+    monkeypatch.setattr(service, "_generate_window", fake_generate)
+
+    result = service.transcribe_wav("pretrained", Path("ignored.wav"))
+
+    assert result.text_raw == "ठीक"
+    assert result.device == "cpu", "the retry must report the device it really used"
+    assert devices_served == ["cuda", "cpu"], devices_served
+    assert service._gpu_disabled is True
+
+
+def test_losing_the_context_drops_every_gpu_model_and_pins_to_cpu() -> None:
+    """The cached objects hold CUDA storage that can no longer be touched."""
+    service = TranscriptionService(_settings())
+    service._loaded = {
+        "pretrained": _cuda_loaded(service, "pretrained"),
+        "full_ft": _cuda_loaded(service, "full_ft"),
+    }
+    service._lru = ["pretrained", "full_ft"]
+    service._shared_peft = object()
+
+    service._disable_gpu_and_evict()
+
+    assert service._loaded == {}
+    assert service._lru == []
+    assert service._shared_peft is None
+    assert service._gpu_disabled is True
+
+
+def test_a_cpu_model_that_fails_is_not_mistaken_for_a_lost_gpu(monkeypatch) -> None:
+    """A genuine error on CPU must surface, not trigger an endless CPU retry."""
+    service = TranscriptionService(_settings())
+    monkeypatch.setattr(
+        "app.services.transcription.load_samples",
+        lambda path: ([0.0] * 16000, 16000),
+    )
+    monkeypatch.setattr(service, "get", lambda key: _stub_loaded(service))
+
+    def boom(loaded, samples, sample_rate):
+        raise RuntimeError(CUDA_FAULT)
+
+    monkeypatch.setattr(service, "_generate_window", boom)
+
+    with pytest.raises(RuntimeError, match="CUDA error"):
+        service.transcribe_wav("pretrained", Path("ignored.wav"))
+    assert service._gpu_disabled is False, "a CPU failure must not disable the GPU"
+
+
+def test_once_the_gpu_is_disabled_new_loads_go_straight_to_cpu(monkeypatch) -> None:
+    """Even while torch still insists a GPU is there."""
+    service = TranscriptionService(_settings())
+    monkeypatch.setattr(
+        "app.services.transcription.resolve_device", lambda config=None: "cuda"
+    )
+
+    assert service._device_for_build() == "cuda"
+
+    service._disable_gpu_and_evict()
+
+    assert service._device_for_build() == "cpu"
