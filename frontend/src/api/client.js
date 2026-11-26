@@ -63,9 +63,16 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { response, config } = error
-    const isAuthCall = config?.url?.includes('/auth/')
 
-    if (response?.status !== 401 || config?._retried || isAuthCall || !tokens.refresh) {
+    // Only the token-issuing calls must skip the refresh-and-retry dance:
+    // refreshing in response to their own 401 would recurse. Every other
+    // /auth/ route — /auth/me in particular — is an ordinary protected
+    // resource, and a plain `includes('/auth/')` test wrongly swept it up,
+    // so restoring a session with an expired access token logged the user
+    // out instead of refreshing.
+    const isTokenCall = /\/auth\/(login|register|refresh|logout)/.test(config?.url || '')
+
+    if (response?.status !== 401 || config?._retried || isTokenCall || !tokens.refresh) {
       return Promise.reject(error)
     }
 
