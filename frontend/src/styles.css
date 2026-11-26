@@ -613,7 +613,7 @@ button.link {
 /* --- compare columns ---------------------------------------------------- */
 .compare-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr));
   gap: 1rem;
   align-items: start;
 }
@@ -770,7 +770,10 @@ tr.selected-run td {
 /* --- charts ------------------------------------------------------------- */
 .chart-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr));
+  /* min() so the track can shrink below its ideal width instead of
+     overflowing: a bare minmax(26rem, ...) floors each column at 416px and
+     pushes the charts off-screen on any phone narrower than that. */
+  grid-template-columns: repeat(auto-fit, minmax(min(26rem, 100%), 1fr));
   gap: 1rem;
 }
 
