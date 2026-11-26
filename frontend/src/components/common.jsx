@@ -53,10 +53,14 @@ export function fmtInt(value) {
   return Number(value).toLocaleString()
 }
 
+// Decimal MB/GB, matching how the research reports checkpoint sizes (~973 MB
+// for the full fine-tune, ~12.7 MB for the adapter). Dividing by 1024 instead
+// gave 927.6 and 12.1 while still printing "MB", so the efficiency table
+// contradicted the note printed directly beneath it.
 export function fmtBytes(bytes) {
   if (!bytes) return '—'
-  const mb = bytes / (1024 * 1024)
-  return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`
+  const mb = bytes / 1e6
+  return mb >= 1000 ? `${(mb / 1000).toFixed(2)} GB` : `${mb.toFixed(1)} MB`
 }
 
 export function fmtDuration(seconds) {
