@@ -1,0 +1,55 @@
+# Render Blueprint for the HDSD transcriber API.
+#
+# Render → New → Blueprint → point at this repo, or configure a Web Service by
+# hand with the same values. The frontend deploys separately on Vercel.
+#
+# IMPORTANT -- the free instance has 512 MB RAM and cannot hold Whisper-small
+# (~973 MB of FP32 weights per model). INFERENCE_ENABLED is therefore false
+# here: auth, the research benchmark, history and exports all work, and the
+# transcription endpoints return 503 with an explanatory message. Run the
+# backend locally (or on a box with >= 4 GB RAM) to transcribe.
+services:
+  - type: web
+    name: hdsd-transcriber-api
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements-deploy.txt
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+
+      # Managed Postgres (Neon). Paste the provider string verbatim --
+      # `postgres://` and `?sslmode=require` are normalized for asyncpg.
+      - key: DATABASE_URL
+        sync: false
+
+      # python -c "import secrets; print(secrets.token_urlsafe(64))"
+      - key: SECRET_KEY
+        generateValue: true
+
+      # Set to the Vercel production URL once the frontend is deployed.
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CORS_ORIGIN_REGEX
+        value: https://.*\.vercel\.app
+
+      # No model weights on this host -- see the note above.
+      - key: INFERENCE_ENABLED
+        value: "false"
+
+      # Render's free disk is ephemeral: uploads are wiped on every restart.
+      - key: UPLOAD_DIR
+        value: /tmp/hdsd-uploads
+      - key: MEDIA_RETENTION_DAYS
+        value: "1"

@@ -1,0 +1,17 @@
+# Normalise line endings so a Windows checkout and a Linux CI/host agree.
+# Without this, files committed from Windows carry CRLF and tools on the
+# deployment host (and ruff/eslint diffs) churn on every line.
+* text=auto eol=lf
+
+# Windows-only helpers keep CRLF so they run under cmd/PowerShell.
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Never touch binary-ish or generated content.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+package-lock.json -diff linguist-generated

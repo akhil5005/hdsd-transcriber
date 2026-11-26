@@ -1,0 +1,28 @@
+# Slim dependency set for the hosted API (Render free tier).
+#
+# Deliberately EXCLUDES the ML stack from requirements.txt. torch==2.7.1 alone
+# is a ~2.4 GB download and Whisper-small needs ~973 MB of RAM per model, which
+# a 512 MB free instance cannot hold. The hosted service runs with
+# INFERENCE_ENABLED=false; transcription happens on a local/GPU machine using
+# requirements.txt instead.
+
+# --- Web / API ---------------------------------------------------------------
+fastapi>=0.115,<0.121
+uvicorn[standard]>=0.32,<0.40
+python-multipart>=0.0.12,<0.1
+pydantic>=2.9,<3.0
+pydantic-settings>=2.6,<3.0
+email-validator>=2.2,<3.0
+
+# --- Database ----------------------------------------------------------------
+SQLAlchemy>=2.0.36,<2.1
+asyncpg>=0.30,<0.31
+alembic>=1.14,<2.0
+
+# --- Auth --------------------------------------------------------------------
+pyjwt>=2.10,<3.0
+argon2-cffi>=23.1,<26.0
+
+# --- Metrics -----------------------------------------------------------------
+# Pure-python; WER/CER for the benchmark and history pages need no torch.
+jiwer>=3.0,<4.0
