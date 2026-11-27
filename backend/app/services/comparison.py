@@ -4,10 +4,9 @@ Two modes, decided by whether a reference transcript was supplied:
 
 * **With a reference** -- WER, CER and S/D/I per model, plus a word-level diff
   against the reference for highlighting.
-* **Without** -- transcripts and timings only, plus *pairwise agreement*: each
-  model's output scored against each other model's. That number is explicitly
-  **not** accuracy; there is no ground truth involved, and it is asymmetric,
-  so both directions are reported rather than one averaged figure.
+* **Without** -- transcripts and timings only. Models are never scored
+  against each other: without ground truth there is no accuracy to report,
+  and a models-agree-with-each-other number was too easily read as one.
 
 Everything is computed on text already put through
 :func:`app.services.normalization.normalize_text`, so a score always refers to
@@ -19,11 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.metrics import AlignmentOp, OpKind, ScoreResult, score, word_alignment
+from app.services.metrics import AlignmentOp, OpKind, ScoreResult, score
 from app.services.normalization import normalize_text
-
-#: Shown wherever agreement numbers appear.
-AGREEMENT_CAVEAT = "agreement, not accuracy"
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,32 +87,6 @@ def score_against_reference(
     return scored
 
 
-def pairwise_agreement(transcripts: dict[str, str]) -> list[dict[str, Any]]:
-    """WER of every ordered model pair against each other.
-
-    Both directions are reported because WER is not symmetric -- the
-    denominator is the first argument's word count.
-    """
-    rows: list[dict[str, Any]] = []
-    for left in sorted(transcripts):
-        for right in sorted(transcripts):
-            if left == right:
-                continue
-            alignment = word_alignment(transcripts[left], transcripts[right])
-            rows.append(
-                {
-                    "reference_model": left,
-                    "hypothesis_model": right,
-                    "wer": alignment.counts.error_rate,
-                    "substitutions": alignment.counts.substitutions,
-                    "deletions": alignment.counts.deletions,
-                    "insertions": alignment.counts.insertions,
-                    "note": AGREEMENT_CAVEAT,
-                }
-            )
-    return rows
-
-
 def unanimous(transcripts: dict[str, str]) -> bool:
     """True when every model produced the same normalized text."""
     return len(set(transcripts.values())) <= 1
@@ -157,6 +127,4 @@ def summarize(
             }
             for key, entry in scored.items()
         },
-        "agreement": [] if has_reference else pairwise_agreement(transcripts),
-        "agreement_note": AGREEMENT_CAVEAT,
     }

@@ -417,9 +417,10 @@ async def test_detail_includes_the_comparison_block(
     assert len(body["transcriptions"]) == 3
 
 
-async def test_detail_reports_agreement_without_a_reference(
+async def test_detail_reports_no_scores_without_a_reference(
     client, tokens, wav_bytes
 ) -> None:
+    """Transcripts and timings still come back; accuracy does not."""
     from app.services.jobs import TranscriptionWorker
 
     created = await _upload(client, tokens, wav_bytes, model_key="all")
@@ -431,8 +432,8 @@ async def test_detail_reports_agreement_without_a_reference(
 
     assert body["has_reference"] is False
     assert body["comparison"]["scores"] == {}
-    assert len(body["comparison"]["agreement"]) == 6
-    assert body["comparison"]["agreement_note"] == "agreement, not accuracy"
+    assert "agreement" not in body["comparison"]
+    assert len(body["transcriptions"]) == 3
 
 
 async def test_history_lists_the_users_jobs_newest_first(

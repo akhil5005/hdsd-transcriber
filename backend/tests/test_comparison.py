@@ -66,54 +66,23 @@ def test_diff_counts_sum_to_the_alignment_length() -> None:
 
 
 # --- without a reference ----------------------------------------------------
-def test_agreement_covers_every_ordered_pair() -> None:
-    rows = comparison.pairwise_agreement(THREE)
-    pairs = {(row["reference_model"], row["hypothesis_model"]) for row in rows}
-
-    # 3 models -> 6 ordered pairs, self-comparisons excluded.
-    assert len(rows) == 6
-    assert ("full_ft", "lora") in pairs
-    assert ("lora", "full_ft") in pairs
-    assert not any(a == b for a, b in pairs)
-
-
-def test_agreement_rows_are_labelled_not_accuracy() -> None:
-    for row in comparison.pairwise_agreement(THREE):
-        assert row["note"] == "agreement, not accuracy"
-
-
-def test_agreement_is_asymmetric_and_both_directions_are_reported() -> None:
-    transcripts = {"a": "यह बड़ा घर है", "b": "घर"}
-    rows = {
-        (row["reference_model"], row["hypothesis_model"]): row["wer"]
-        for row in comparison.pairwise_agreement(transcripts)
-    }
-    assert rows[("a", "b")] != rows[("b", "a")]
-
-
-def test_identical_outputs_agree_perfectly() -> None:
-    same = {"a": "यह घर है", "b": "यह घर है"}
-    assert all(row["wer"] == 0.0 for row in comparison.pairwise_agreement(same))
-
-
-# --- summarize bundle -------------------------------------------------------
-def test_summary_with_a_reference_scores_and_skips_agreement() -> None:
+def test_summary_with_a_reference_scores_every_model() -> None:
     body = comparison.summarize(THREE, REFERENCE)
 
     assert body["has_reference"] is True
     assert set(body["scores"]) == {"pretrained", "full_ft", "lora"}
-    assert body["agreement"] == []
     assert body["lowest_wer_model"] == "full_ft"
     assert body["unanimous"] is False
 
 
-def test_summary_without_a_reference_reports_agreement_only() -> None:
+def test_summary_without_a_reference_reports_no_scores() -> None:
+    """No ground truth means no accuracy: models are never scored on each other."""
     body = comparison.summarize(THREE, None)
 
     assert body["has_reference"] is False
     assert body["scores"] == {}
-    assert len(body["agreement"]) == 6
     assert body["lowest_wer_model"] is None
+    assert "agreement" not in body
 
 
 def test_summary_detects_unanimity() -> None:
@@ -122,9 +91,12 @@ def test_summary_detects_unanimity() -> None:
     assert comparison.summarize(THREE, None)["unanimous"] is False
 
 
-def test_summary_includes_the_agreement_caveat_even_when_scored() -> None:
-    body = comparison.summarize(THREE, REFERENCE)
-    assert body["agreement_note"] == "agreement, not accuracy"
+def test_summary_never_reports_model_versus_model_numbers() -> None:
+    """Dropped deliberately: it was read as accuracy when it was not."""
+    for reference in (REFERENCE, None):
+        body = comparison.summarize(THREE, reference)
+        assert "agreement" not in body
+        assert "agreement_note" not in body
 
 
 def test_summary_scores_carry_sdi_and_diff() -> None:
@@ -143,7 +115,6 @@ def test_summary_handles_a_single_model() -> None:
 
     assert body["models"] == ["full_ft"]
     assert body["scores"]["full_ft"]["wer"] == 0.0
-    assert body["agreement"] == []
 
 
 def test_lowest_wer_model_ignores_unscoreable_entries() -> None:
