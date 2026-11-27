@@ -1,0 +1,15 @@
+prompt_id,romanized,devanagari,verified
+# Copy this file to hdsd_prompts.csv and fill in one row per corpus sentence,
+# then run: python -m app.scripts.seed_prompts
+#
+# prompt_id   sentence id exactly as it appears in the filenames, e.g. H15
+#             from M22_S1_H15_M1.wav
+# romanized   the corpus's own word labels, joined with spaces. Read them from
+#             WORD/<speaker>/<speaker>_S1_H<NN>.txt, third column.
+# devanagari  the same sentence in Devanagari. This is what the models are
+#             scored against, so an error here silently corrupts every WER.
+# verified    "no" until a person has confirmed the Devanagari, "yes" after.
+#             Unverified sentences are labelled provisional in the UI.
+#
+# The real file is git-ignored: it holds corpus content.
+H00,example romanised sentence here,यहाँ देवनागरी वाक्य लिखें,no

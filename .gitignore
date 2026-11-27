@@ -31,6 +31,10 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Corpus sentences: real HDSD content, kept out of the repo. Copy
+# hdsd_prompts.example.csv and fill it in from the corpus you hold.
+backend/data/hdsd_prompts.csv
+
 # Local scratch
 *.log
 tmp/

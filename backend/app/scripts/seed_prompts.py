@@ -32,9 +32,16 @@ REQUIRED_COLUMNS = {"prompt_id", "romanized", "devanagari", "verified"}
 
 def load_rows(path: Path) -> list[dict[str, str]]:
     if not path.is_file():
-        raise FileNotFoundError(f"Prompt table not found: {path}")
+        example = path.with_name("hdsd_prompts.example.csv").name
+        raise FileNotFoundError(
+            f"Prompt table not found: {path}. It holds corpus sentences, so "
+            f"it is git-ignored rather than shipped. Copy {example} next to "
+            f"it and fill it in from the corpus you hold."
+        )
     with open(path, encoding="utf-8", newline="") as fh:
-        reader = csv.DictReader(fh)
+        # Comment lines let the example file document its own columns.
+        lines = [ln for ln in fh if not ln.lstrip().startswith("#")]
+        reader = csv.DictReader(lines)
         missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
         if missing:
             raise ValueError(f"{path} is missing column(s): {sorted(missing)}")

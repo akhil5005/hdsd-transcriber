@@ -61,31 +61,25 @@ class Settings(BaseSettings):
     cors_origin_regex: str | None = None
 
     # --- Research assets (READ-ONLY) ---------------------------------------
-    hdsd_root: Path = Path(
-        "<RESEARCH_ARCHIVE>/hdsd_simple/runs"
-    )
-    full_ft_dir: Path = Path(
-        "<RESEARCH_ARCHIVE>/hdsd_simple/runs/full_lr5e-06_seed123/best"
-    )
-    lora_dir: Path = Path(
-        "<RESEARCH_ARCHIVE>/hdsd_simple/runs/lora_lr5e-05_seed2026/best"
-    )
-    benchmark_dir: Path = Path(
-        "<RESEARCH_ARCHIVE>/hdsd_simple/runs/final_v3/tables"
-    )
+    # These point at the research archive, which lives outside the repo and
+    # differs per machine. Every one of them must be set in .env -- see
+    # .env.example. The defaults below are deliberately relative placeholders
+    # rather than anyone's real paths: startup fails loudly and names the
+    # missing path, which is a better failure than silently reading the wrong
+    # checkpoint.
+    hdsd_root: Path = Path("research/runs")
+    full_ft_dir: Path = Path("research/runs/full_ft/best")
+    lora_dir: Path = Path("research/runs/lora/best")
+    benchmark_dir: Path = Path("research/runs/final_v3/tables")
     #: Frozen prepared manifest (read-only). Used only by the verification
     #: script to map utterance ids to audio files.
-    prepared_dir: Path = Path(
-        "<RESEARCH_ARCHIVE>/hdsd_simple/prepared/v1"
-    )
+    prepared_dir: Path = Path("research/prepared/v1")
     #: Saved per-model predictions for every split (read-only), also
-    #: verification-only.
-    final_v3_dir: Path = Path(
-        "<RESEARCH_ARCHIVE>/hdsd_simple/runs/final_v3"
-    )
+    #: verification-only. Derived from hdsd_root when not set explicitly.
+    final_v3_dir: Path = Path("research/runs/final_v3")
     #: Original HDSD audio corpus (READ-ONLY). Not needed to run the app --
     #: only app.scripts.verify_against_research reads it.
-    hdsd_dataset_dir: Path = Path("<HDSD_DATASET>")
+    hdsd_dataset_dir: Path = Path("research/dataset")
 
     base_model_id: str = "openai/whisper-small"
     base_model_revision: str = "973afd24965f72e36ca33b3055d56a652f456b4d"
