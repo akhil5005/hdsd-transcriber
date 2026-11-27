@@ -10,6 +10,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.media import MediaFile
+from app.models.prompt import DatasetPrompt
 from app.models.registry import ModelRegistry
 from app.models.transcription import Transcription, TranscriptionJob
 from app.models.user import RefreshToken, User
@@ -17,6 +18,7 @@ from app.models.user import RefreshToken, User
 __all__ = [
     "Base",
     "BenchmarkMetric",
+    "DatasetPrompt",
     "JobMode",
     "JobStatus",
     "MediaFile",
