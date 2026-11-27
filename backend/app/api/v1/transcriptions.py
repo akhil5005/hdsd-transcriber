@@ -49,6 +49,7 @@ from app.services import comparison
 from app.services import media as media_service
 from app.services.jobs import ALL_MODEL_KEYS, get_worker
 from app.services.normalization import normalize_text
+from app.services.prompts import lookup_ground_truth
 
 logger = get_logger(__name__)
 
@@ -90,6 +91,9 @@ def _summary(job: TranscriptionJob) -> JobSummary:
         status=job.status,
         requested_model_key=job.requested_model_key,
         has_reference=bool(normalize_text(job.reference_text)),
+        reference_source=job.reference_source,
+        reference_prompt_id=job.reference_prompt_id,
+        reference_verified=job.reference_verified,
         error=job.error,
         created_at=job.created_at,
         finished_at=job.finished_at,
@@ -110,6 +114,7 @@ def _detail(job: TranscriptionJob) -> JobDetail:
             TranscriptionOut.model_validate(t) for t in job.transcriptions
         ],
         comparison=block,
+        reference_text=job.reference_text,
     )
 
 
@@ -165,6 +170,22 @@ async def create_transcription(
     db.add(media)
     await db.flush()
 
+    # A typed reference always wins. Only when the user left the box empty do
+    # we try to recognise the recording as a corpus file and use its prompt as
+    # ground truth -- that is the whole point of the dataset path: scoring
+    # without asking a clinician to transcribe by hand.
+    resolved_reference = (reference_text or "").strip() or None
+    reference_source = "manual" if resolved_reference else None
+    reference_prompt_id = None
+    reference_verified = None
+    if resolved_reference is None:
+        matched = await lookup_ground_truth(db, stored.original_filename)
+        if matched is not None:
+            resolved_reference = matched.devanagari
+            reference_source = "dataset"
+            reference_prompt_id = matched.prompt_id
+            reference_verified = matched.verified
+
     mode = JobMode.COMPARE if model_key == "all" else JobMode.SINGLE
     job = TranscriptionJob(
         user_id=user.id,
@@ -173,7 +194,10 @@ async def create_transcription(
         status=JobStatus.QUEUED,
         requested_model_key=None if mode == JobMode.COMPARE else model_key,
         # Stored for scoring; never logged (see app/core/logging.py).
-        reference_text=reference_text or None,
+        reference_text=resolved_reference,
+        reference_source=reference_source,
+        reference_prompt_id=reference_prompt_id,
+        reference_verified=reference_verified,
     )
     db.add(job)
     await db.commit()

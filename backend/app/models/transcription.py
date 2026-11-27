@@ -46,6 +46,23 @@ class TranscriptionJob(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
     error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     #: Optional Devanagari ground truth supplied by the user. Never logged.
     reference_text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    #: Where reference_text came from: "manual" when the user typed it,
+    #: "dataset" when it was recognised from an HDSD filename. Null when the
+    #: job has no reference and therefore no WER/CER.
+    reference_source: Mapped[str | None] = mapped_column(
+        sa.String(16), nullable=True
+    )
+    #: The HDSD sentence id behind a "dataset" reference, e.g. "H15", so the
+    #: UI can show which prompt was matched.
+    reference_prompt_id: Mapped[str | None] = mapped_column(
+        sa.String(16), nullable=True
+    )
+    #: Whether the matched prompt's Devanagari had been human-checked at the
+    #: time of the run. Recorded per job rather than looked up later, so a
+    #: score always carries the provenance it was actually computed under.
+    reference_verified: Mapped[bool | None] = mapped_column(
+        sa.Boolean, nullable=True
+    )
     finished_at: Mapped[datetime | None] = mapped_column(TimestampType, nullable=True)
 
     user: Mapped[User] = relationship()

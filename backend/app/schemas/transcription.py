@@ -92,6 +92,13 @@ class JobSummary(BaseModel):
     status: JobStatus
     requested_model_key: str | None = None
     has_reference: bool
+    #: "manual" (typed), "dataset" (recognised from an HDSD filename), or None.
+    reference_source: str | None = None
+    #: Sentence id behind a dataset reference, e.g. "H15".
+    reference_prompt_id: str | None = None
+    #: False when the matched prompt's Devanagari has not been human-checked,
+    #: so the UI can mark the scores provisional.
+    reference_verified: bool | None = None
     error: str | None = None
     created_at: datetime
     finished_at: datetime | None = None
@@ -100,10 +107,18 @@ class JobSummary(BaseModel):
 
 
 class JobDetail(JobSummary):
-    """Full job with results and the comparison block."""
+    """Full job with results and the comparison block.
+
+    Carries the reference itself, unlike JobSummary: the detail view is the
+    one place the owner needs to see what their transcripts were scored
+    against, especially when it was filled in automatically from the corpus
+    and they never typed it. Still owner-or-admin only, and still never
+    logged (see app/core/logging.py).
+    """
 
     transcriptions: list[TranscriptionOut] = Field(default_factory=list)
     comparison: dict[str, Any] | None = None
+    reference_text: str | None = None
 
 
 class JobCreated(BaseModel):
