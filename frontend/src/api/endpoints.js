@@ -113,3 +113,23 @@ export async function getBenchmarkSummary() {
   const { data } = await api.get('/benchmark/summary')
   return data
 }
+
+// --- corpus prompts ---------------------------------------------------------
+/**
+ * The HDSD sentence id inside a corpus filename, or null.
+ *
+ * Mirrors prompt_id_from_filename in app/services/prompts.py. The frontend
+ * needs it before upload, to decide whether to ask for a reference at all;
+ * the backend still does its own lookup, so this is a UI hint, never the
+ * thing that picks ground truth.
+ */
+export function promptIdFromFilename(filename) {
+  if (!filename) return null
+  const match = /(?:^|_)(H\d{2})(?:_|\.)/i.exec(filename)
+  return match ? match[1].toUpperCase() : null
+}
+
+export async function getPrompt(promptId) {
+  const { data } = await api.get(`/prompts/${promptId}`)
+  return data
+}

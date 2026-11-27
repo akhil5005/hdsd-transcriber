@@ -921,3 +921,116 @@ tr.selected-run td {
     display: none;
   }
 }
+
+/* --- microphone recorder ------------------------------------------------- */
+.recorder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.recorder-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.recorder-time {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.recorder-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.recorder-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #d14343;
+  animation: recorder-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes recorder-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* Respect a reduced-motion preference: the dot still marks "recording",
+   it just stops blinking. The waveform is information, not decoration,
+   so it keeps animating. */
+@media (prefers-reduced-motion: reduce) {
+  .recorder-dot { animation: none; }
+}
+
+.waveform {
+  display: block;
+  width: 100%;
+  height: 84px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+}
+
+.waveform.live {
+  border-color: var(--accent);
+  background: var(--surface-1);
+}
+
+/* --- upload / record mode switch ----------------------------------------- */
+.input-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.8rem;
+}
+
+.input-tabs button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+}
+
+.input-tabs button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* --- recognised ground truth --------------------------------------------- */
+.gt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* --- ground truth display ------------------------------------------------ */
+.gt-sentence {
+  margin: 0.4rem 0 0.2rem;
+  font-size: 1.15rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.card.inset {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 0.9rem 1rem;
+}

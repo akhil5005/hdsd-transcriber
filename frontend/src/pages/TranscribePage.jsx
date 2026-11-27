@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { errorMessage } from '../api/client.js'
 import * as apiCalls from '../api/endpoints.js'
 import Dropzone from '../components/Dropzone.jsx'
+import Recorder from '../components/Recorder.jsx'
 import JobResults from '../components/JobResults.jsx'
 import ModelSelector from '../components/ModelSelector.jsx'
 import { Banner, Spinner } from '../components/common.jsx'
@@ -10,6 +11,8 @@ const POLL_MS = 1200
 
 export default function TranscribePage() {
   const [file, setFile] = useState(null)
+  const [inputMode, setInputMode] = useState('upload')
+  const [datasetPrompt, setDatasetPrompt] = useState(null)
   const [modelKey, setModelKey] = useState('all')
   const [referenceText, setReferenceText] = useState('')
   const [uploadPercent, setUploadPercent] = useState(0)
@@ -26,6 +29,30 @@ export default function TranscribePage() {
       .then((rows) => setLoadedModels(rows.filter((row) => row.loaded).map((r) => r.key)))
       .catch(() => setLoadedModels([]))
   }, [job?.status])
+
+  // A corpus filename tells us the sentence before anything is uploaded, so
+  // the reference box can be replaced with the actual ground truth instead of
+  // asking for something we already know.
+  useEffect(() => {
+    const promptId = apiCalls.promptIdFromFilename(file?.name)
+    if (!promptId) {
+      setDatasetPrompt(null)
+      return
+    }
+    let cancelled = false
+    apiCalls
+      .getPrompt(promptId)
+      .then((prompt) => {
+        if (!cancelled) setDatasetPrompt(prompt)
+      })
+      .catch(() => {
+        // Not seeded, or an id we do not have. Fall back to asking.
+        if (!cancelled) setDatasetPrompt(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [file])
 
   const stopPolling = useCallback(() => {
     if (pollTimer.current) {
@@ -112,7 +139,46 @@ export default function TranscribePage() {
       <form className="card stack" onSubmit={submit}>
         <div>
           <h2 style={{ marginBottom: '0.5rem' }}>1 · Recording</h2>
-          <Dropzone file={file} onFile={setFile} disabled={busy} />
+
+          <div className="input-tabs" role="group" aria-label="How to supply audio">
+            <button
+              type="button"
+              aria-pressed={inputMode === 'upload'}
+              onClick={() => setInputMode('upload')}
+              disabled={busy}
+            >
+              Upload a file
+            </button>
+            <button
+              type="button"
+              aria-pressed={inputMode === 'record'}
+              onClick={() => setInputMode('record')}
+              disabled={busy}
+            >
+              Record with microphone
+            </button>
+          </div>
+
+          {inputMode === 'upload' ? (
+            <>
+              <Dropzone file={file} onFile={setFile} disabled={busy} />
+              <span className="hint">
+                A file straight from the HDSD corpus (for example
+                M22_S1_H15_M1.wav) is recognised by its name, and its sentence is
+                used as ground truth automatically.
+              </span>
+            </>
+          ) : (
+            <>
+              <Recorder onRecorded={setFile} disabled={busy} />
+              {file ? (
+                <p className="hint">
+                  Captured {file.name} ({Math.round(file.size / 1024)} KB). Record
+                  again to replace it.
+                </p>
+              ) : null}
+            </>
+          )}
         </div>
 
         <div>
@@ -125,27 +191,58 @@ export default function TranscribePage() {
           />
         </div>
 
-        <div>
-          <h2 style={{ marginBottom: '0.5rem' }}>3 · Reference transcript (optional)</h2>
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label htmlFor="reference">
-              Ground truth in Devanagari — enables WER, CER and the word-level diff
-            </label>
-            <textarea
-              id="reference"
-              className="devanagari"
-              lang="hi"
-              placeholder="यहाँ संदर्भ प्रतिलेख लिखें…"
-              value={referenceText}
-              onChange={(event) => setReferenceText(event.target.value)}
-              disabled={busy}
-            />
-            <span className="hint">
-              Leave this blank to see transcripts, timings and pairwise agreement
-              between models instead.
-            </span>
+        {datasetPrompt ? (
+          // Ground truth is already known, so showing an empty box to type it
+          // into would be busywork. Show the sentence instead.
+          <div>
+            <h2 style={{ marginBottom: '0.5rem' }}>3 · Ground truth</h2>
+            <div className="card inset">
+              <div className="card-head">
+                <span className="gt-chip">from dataset · {datasetPrompt.prompt_id}</span>
+                {datasetPrompt.verified ? null : (
+                  <span className="muted">not yet verified by a person</span>
+                )}
+              </div>
+              <p className="devanagari gt-sentence" lang="hi">
+                {datasetPrompt.devanagari}
+              </p>
+              <p className="hint">
+                Recognised from the filename, so WER, CER and the word-level diff
+                are scored automatically — nothing to type.
+                {datasetPrompt.verified
+                  ? ''
+                  : ' This sentence was transcribed from the corpus’s romanised labels and has not been checked yet, so treat the scores as provisional.'}
+              </p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div>
+            <h2 style={{ marginBottom: '0.5rem' }}>
+              3 · Reference transcript {inputMode === 'record' ? '(optional)' : ''}
+            </h2>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label htmlFor="reference">
+                Ground truth in Devanagari — enables WER, CER and the word-level diff
+              </label>
+              <textarea
+                id="reference"
+                className="devanagari"
+                lang="hi"
+                placeholder="यहाँ संदर्भ प्रतिलेख लिखें…"
+                value={referenceText}
+                onChange={(event) => setReferenceText(event.target.value)}
+                disabled={busy}
+              />
+              <span className="hint">
+                {inputMode === 'record'
+                  ? 'A recording is new speech with no sentence id, so type what was said if you want WER and CER. Leave it blank to just get the transcript.'
+                  : file
+                    ? 'This file is not from the corpus, so there is no ground truth to look up. Type it to get WER and CER, or leave blank for transcripts only.'
+                    : 'Choose a corpus file and its sentence is filled in for you. For anything else, type the ground truth here.'}
+              </span>
+            </div>
+          </div>
+        )}
 
         <div className="button-row">
           <button type="submit" className="primary" disabled={busy || !file}>

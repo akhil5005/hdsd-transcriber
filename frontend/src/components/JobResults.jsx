@@ -1,5 +1,6 @@
 import * as apiCalls from '../api/endpoints.js'
 import {
+  Banner,
   CopyButton,
   MODEL_COLOR,
   MODEL_ORDER,
@@ -155,57 +156,6 @@ function ModelColumn({ row, scores, isBest, hasReference }) {
   )
 }
 
-function AgreementTable({ rows }) {
-  if (!rows?.length) return null
-  return (
-    <section className="card">
-      <div className="card-head">
-        <h3>Pairwise agreement</h3>
-        <span className="badge">agreement, not accuracy</span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Treated as reference</th>
-              <th>Compared against it</th>
-              <th className="num">WER %</th>
-              <th className="num">S</th>
-              <th className="num">D</th>
-              <th className="num">I</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={`${row.reference_model}->${row.hypothesis_model}`}>
-                <td>
-                  <Swatch modelKey={row.reference_model} />{' '}
-                  {MODEL_SHORT[row.reference_model] || row.reference_model}
-                </td>
-                <td>
-                  <Swatch modelKey={row.hypothesis_model} />{' '}
-                  {MODEL_SHORT[row.hypothesis_model] || row.hypothesis_model}
-                </td>
-                <td className="num">{fmt(row.wer)}</td>
-                <td className="num">{fmtInt(row.substitutions)}</td>
-                <td className="num">{fmtInt(row.deletions)}</td>
-                <td className="num">{fmtInt(row.insertions)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="card-note">
-        No reference transcript was supplied, so there is no ground truth here.
-        These numbers say how far the models differ from <em>each other</em>, not
-        how accurate any of them is. WER is not symmetric — the denominator is the
-        word count of whichever output is treated as the reference — so both
-        directions are listed.
-      </p>
-    </section>
-  )
-}
-
 export default function JobResults({ job }) {
   const comparison = job.comparison || {}
   const hasReference = Boolean(comparison.has_reference)
@@ -247,7 +197,16 @@ export default function JobResults({ job }) {
             unit="s"
           />
           <Metric label="Models" value={rows.length} />
-          <Metric label="Reference" value={hasReference ? 'yes' : 'no'} />
+          <Metric
+            label="Reference"
+            value={
+              job.reference_source === 'dataset'
+                ? `dataset · ${job.reference_prompt_id}`
+                : hasReference
+                  ? 'typed'
+                  : 'none'
+            }
+          />
           {comparison.unanimous !== undefined ? (
             <Metric
               label="Outputs"
@@ -258,6 +217,34 @@ export default function JobResults({ job }) {
 
         {hasReference ? <DiffLegend /> : null}
       </section>
+
+      {job.reference_text ? (
+        <section className="card">
+          <div className="card-head">
+            <h3>Ground truth</h3>
+            {job.reference_source === 'dataset' ? (
+              <span className="gt-chip">from dataset · {job.reference_prompt_id}</span>
+            ) : (
+              <span className="badge">typed by you</span>
+            )}
+          </div>
+          <p className="devanagari gt-sentence" lang="hi">
+            {job.reference_text}
+          </p>
+          <p className="card-note">
+            Every score below is measured against this sentence.
+          </p>
+        </section>
+      ) : null}
+
+      {job.reference_source === 'dataset' && job.reference_verified === false ? (
+        <Banner kind="warn">
+          Ground truth for {job.reference_prompt_id} came from the corpus's own
+          romanised word labels and has not been checked by a person yet. The
+          transcripts below are real; treat the WER and CER as provisional until
+          the sentence is verified.
+        </Banner>
+      ) : null}
 
       <div className="compare-grid">
         {rows.map((row) => (
@@ -270,8 +257,6 @@ export default function JobResults({ job }) {
           />
         ))}
       </div>
-
-      {!hasReference ? <AgreementTable rows={comparison.agreement} /> : null}
     </div>
   )
 }

@@ -16,7 +16,9 @@ scores on your own uploads.
 |---|---|
 | **Three models** | Pretrained Whisper-small (pinned revision), full fine-tune (lr 5e-6, seed 123), LoRA adapter (lr 5e-5, seed 2026, r=16, α=32, q/v) |
 | **Frozen decoding** | FP32, greedy (`num_beams=1`, `do_sample=False`), `language="hi"`, `task="transcribe"`, no timestamps, `max_new_tokens=96` per 30 s window |
-| **Live comparison** | Side-by-side transcripts, WER/CER/S-D-I against an optional reference, word-level diff, inference time and real-time factor |
+| **Two ways in** | Upload a file, or record straight from the microphone with a live level meter so the speaker can see the mic is picking them up |
+| **Ground truth** | A file named like the corpus (`M22_S1_H15_M1.wav`) is recognised by its sentence id and scored automatically; a recording is new speech, so you type the reference only if you want metrics |
+| **Live comparison** | Side-by-side transcripts, WER/CER/S-D-I against ground truth, word-level diff, inference time and real-time factor |
 | **Research benchmark** | The frozen `final_v3` tables, seeded into the database and charted per evaluation case |
 
 The app reproduces the research pipeline exactly: running the five verified
@@ -101,6 +103,7 @@ Then:
 ```powershell
 alembic upgrade head
 python -m app.scripts.seed_benchmark
+python -m app.scripts.seed_prompts
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -205,6 +208,10 @@ python -m app.scripts.smoke --model all --file sample.mp4
 # Seed the research benchmark (idempotent).
 python -m app.scripts.seed_benchmark
 python -m app.scripts.seed_benchmark --dry-run
+
+# Seed the 30 corpus sentences used as ground truth (idempotent).
+python -m app.scripts.seed_prompts
+python -m app.scripts.seed_prompts --dry-run
 
 # Reproduce the research predictions end to end.
 python -m app.scripts.verify_against_research
@@ -347,6 +354,46 @@ frontend/vercel.json
 
 ---
 
+## Ground truth for dataset uploads
+
+All 64 speakers in the corpus read the same 30 sentences, and the filename
+says which one:
+
+```
+M22_S1_H15_M1.wav
+^^^    ^^^ ^^
+|      |   mic (M1 / M2)
+|      sentence id -> the prompt, and so the ground truth
+speaker
+```
+
+So a file straight out of `hindi_sent/` is scored without anyone typing a
+reference. The sentences live in `backend/data/hdsd_prompts.csv` and are
+loaded by `python -m app.scripts.seed_prompts`.
+
+**Where the Devanagari came from, and its status.** The corpus ships
+word-level labels under `WORD/<speaker>/<speaker>_S1_H<NN>.txt`, but they are
+romanised (`samaya kei saatha hii nahiin usasei aagei chalaa jaaei`), and the
+models emit Devanagari — scoring one against the other gives 100% WER. The
+Devanagari in `hdsd_prompts.csv` was transcribed from those romanised labels,
+with the word count checked against the source for all 30.
+
+The research archive does **not** contain a verified alternative:
+`reference_hindi` is empty in all 1,882 manifest records, and every reference
+in `predictions.csv` is marked `reference_status: pending`. Those per-utterance
+references also vary speaker to speaker, so they are patient transcripts rather
+than prompt text, and nothing reads them.
+
+Each row therefore carries a `verified` flag, `no` until a human checks it. A
+job scored against an unverified sentence is labelled provisional in the UI,
+and the job records which state it ran under. Set `verified=yes` in the CSV and
+re-run the seed once a sentence has been confirmed.
+
+A browser recording is new speech with no sentence id, so it never matches a
+prompt; type a reference if you want metrics for it.
+
+---
+
 ## Known limitations
 
 See the end of this file's companion, `DEPLOYMENT.md`, for hosting analysis.
@@ -362,3 +409,10 @@ See the end of this file's companion, `DEPLOYMENT.md`, for hosting analysis.
   recordings is untested.
 - **No live speaker-macro WER.** The benchmark shows it from the research
   tables; live jobs are single recordings, so there is nothing to macro-average.
+- **The 30 prompt sentences are unverified.** See the section above: they were
+  transcribed from the corpus's romanised labels because no checked Devanagari
+  exists in the archive. WER and CER against them are provisional until someone
+  confirms the text.
+- **Models are never scored against each other.** An earlier build showed a
+  pairwise-agreement table when no reference was given; it was removed because
+  "the models agree" reads as "the models are right", and it is not.
