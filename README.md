@@ -416,3 +416,13 @@ See the end of this file's companion, `DEPLOYMENT.md`, for hosting analysis.
 - **Models are never scored against each other.** An earlier build showed a
   pairwise-agreement table when no reference was given; it was removed because
   "the models agree" reads as "the models are right", and it is not.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+The licence covers the code in this repository. It does not cover the HDSD
+corpus, the fine-tuned checkpoints, or any recording: none of those are here,
+and all of them carry their own terms.
