@@ -166,8 +166,35 @@ def test_resident_model_limit_is_configurable() -> None:
 
 
 # --- verification-only paths ------------------------------------------------
-def test_verification_paths_point_at_the_frozen_artifacts() -> None:
-    config = defaults()
+def test_verification_paths_are_configurable(tmp_path) -> None:
+    """Each verification path is taken from config, not baked in.
+
+    They used to be asserted against one developer's absolute paths, which
+    both leaked a local layout into a public repo and tested nothing beyond
+    the literal default.
+    """
+    config = defaults(
+        prepared_dir=tmp_path / "prepared" / "v1",
+        final_v3_dir=tmp_path / "runs" / "final_v3",
+        hdsd_dataset_dir=tmp_path / "HDSD_Dataset",
+    )
     assert config.prepared_dir.name == "v1"
     assert config.final_v3_dir.name == "final_v3"
     assert config.hdsd_dataset_dir.name == "HDSD_Dataset"
+
+
+def test_research_paths_default_to_obvious_placeholders() -> None:
+    """Defaults must not be anyone's real paths, and must not look real."""
+    config = defaults()
+    for path in (
+        config.hdsd_root,
+        config.full_ft_dir,
+        config.lora_dir,
+        config.benchmark_dir,
+        config.prepared_dir,
+        config.final_v3_dir,
+        config.hdsd_dataset_dir,
+    ):
+        text = str(path).replace(chr(92), "/")
+        assert not text[1:2] == ":", f"{path} looks like an absolute drive path"
+        assert text.startswith("research/"), f"{path} is not a placeholder"

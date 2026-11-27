@@ -71,8 +71,19 @@ def test_disclaimer_forbids_pooling_and_disclaims_clinical_use() -> None:
 
 
 # --- selected runs ----------------------------------------------------------
-def test_selected_runs_follow_the_configured_checkpoint_paths() -> None:
-    runs = bench.selected_runs(Settings(_env_file=None))
+def test_selected_runs_follow_the_configured_checkpoint_paths(tmp_path) -> None:
+    """The run name is read from the checkpoint path, not hard-coded.
+
+    Paths are supplied explicitly rather than leaned on as defaults: the
+    defaults are deliberately placeholders now, because real ones belong in
+    .env and not in a public repo.
+    """
+    config = Settings(
+        _env_file=None,
+        full_ft_dir=tmp_path / "full_lr5e-06_seed123" / "best",
+        lora_dir=tmp_path / "lora_lr5e-05_seed2026" / "best",
+    )
+    runs = bench.selected_runs(config)
     assert runs["pretrained"] == "baseline_dev"
     assert runs["full_ft"] == "full_lr5e-06_seed123"
     assert runs["lora"] == "lora_lr5e-05_seed2026"
