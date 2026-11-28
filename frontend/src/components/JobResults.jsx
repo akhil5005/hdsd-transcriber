@@ -207,7 +207,9 @@ export default function JobResults({ job }) {
                   : 'none'
             }
           />
-          {comparison.unanimous !== undefined ? (
+          {/* Only meaningful when there is more than one output to compare:
+              a single model's output is trivially "identical" to itself. */}
+          {comparison.unanimous !== undefined && rows.length > 1 ? (
             <Metric
               label="Outputs"
               value={comparison.unanimous ? 'identical' : 'differ'}

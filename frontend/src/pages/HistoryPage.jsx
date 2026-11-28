@@ -244,7 +244,16 @@ export default function HistoryPage() {
                     <td>
                       <StatusBadge status={job.status} />
                     </td>
-                    <td>{job.has_reference ? 'yes' : 'no'}</td>
+                    <td>
+                      {/* Which ground truth a score used matters as much as
+                          the score: "yes" alone cannot tell a corpus sentence
+                          apart from something a colleague typed. */}
+                      {job.reference_source === 'dataset'
+                        ? `dataset · ${job.reference_prompt_id}`
+                        : job.has_reference
+                          ? 'typed'
+                          : '—'}
+                    </td>
                     <td className="num">{fmt(job.media?.duration_sec, 1)}s</td>
                     <td>
                       <div className="button-row">

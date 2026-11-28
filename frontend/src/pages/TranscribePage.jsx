@@ -13,6 +13,12 @@ export default function TranscribePage() {
   const [file, setFile] = useState(null)
   const [inputMode, setInputMode] = useState('upload')
   const [datasetPrompt, setDatasetPrompt] = useState(null)
+  //: Where `file` came from. The two input modes share one file, so without
+  //: this the recorder describes an uploaded file as something it captured.
+  const [fileSource, setFileSource] = useState(null)
+  //: Sentence id seen in the filename, even when it is not one we hold.
+  //: Lets us say "H99 is not seeded" rather than "not a corpus file".
+  const [unknownPromptId, setUnknownPromptId] = useState(null)
   const [modelKey, setModelKey] = useState('all')
   const [referenceText, setReferenceText] = useState('')
   const [uploadPercent, setUploadPercent] = useState(0)
@@ -37,17 +43,25 @@ export default function TranscribePage() {
     const promptId = apiCalls.promptIdFromFilename(file?.name)
     if (!promptId) {
       setDatasetPrompt(null)
+      setUnknownPromptId(null)
       return
     }
     let cancelled = false
     apiCalls
       .getPrompt(promptId)
       .then((prompt) => {
-        if (!cancelled) setDatasetPrompt(prompt)
+        if (cancelled) return
+        setDatasetPrompt(prompt)
+        setUnknownPromptId(null)
       })
       .catch(() => {
-        // Not seeded, or an id we do not have. Fall back to asking.
-        if (!cancelled) setDatasetPrompt(null)
+        // The filename names a sentence we do not hold -- a partially seeded
+        // table, or a file from outside this corpus. Fall back to asking,
+        // but say which id went unmatched rather than claiming the file is
+        // not a corpus file at all.
+        if (cancelled) return
+        setDatasetPrompt(null)
+        setUnknownPromptId(promptId)
       })
     return () => {
       cancelled = true
@@ -98,7 +112,13 @@ export default function TranscribePage() {
       const created = await apiCalls.createJob({
         file,
         modelKey,
-        referenceText,
+        // Only send what the user can actually see. When a corpus sentence is
+        // showing, the textarea is not rendered, so anything still in
+        // referenceText is left over from an earlier file -- and the backend
+        // treats a typed reference as authoritative, which would score the
+        // job against text the user had no way to read or correct while the
+        // form promised them the dataset sentence.
+        referenceText: datasetPrompt ? '' : referenceText,
         onProgress: setUploadPercent,
       })
       setJob({ ...created, id: created.job_id, status: created.status })
@@ -161,7 +181,14 @@ export default function TranscribePage() {
 
           {inputMode === 'upload' ? (
             <>
-              <Dropzone file={file} onFile={setFile} disabled={busy} />
+              <Dropzone
+                file={file}
+                onFile={(chosen) => {
+                  setFile(chosen)
+                  setFileSource(chosen ? 'upload' : null)
+                }}
+                disabled={busy}
+              />
               <span className="hint">
                 A file straight from the HDSD corpus (for example
                 M22_S1_H15_M1.wav) is recognised by its name, and its sentence is
@@ -170,11 +197,18 @@ export default function TranscribePage() {
             </>
           ) : (
             <>
-              <Recorder onRecorded={setFile} disabled={busy} />
+              <Recorder
+                onRecorded={(captured) => {
+                  setFile(captured)
+                  setFileSource('record')
+                }}
+                disabled={busy}
+              />
               {file ? (
                 <p className="hint">
-                  Captured {file.name} ({Math.round(file.size / 1024)} KB). Record
-                  again to replace it.
+                  {fileSource === 'record'
+                    ? `Captured ${file.name} (${Math.round(file.size / 1024)} KB). Record again to replace it.`
+                    : `Still using the uploaded file ${file.name} (${Math.round(file.size / 1024)} KB). Recording replaces it.`}
                 </p>
               ) : null}
             </>
@@ -236,9 +270,11 @@ export default function TranscribePage() {
               <span className="hint">
                 {inputMode === 'record'
                   ? 'A recording is new speech with no sentence id, so type what was said if you want WER and CER. Leave it blank to just get the transcript.'
-                  : file
-                    ? 'This file is not from the corpus, so there is no ground truth to look up. Type it to get WER and CER, or leave blank for transcripts only.'
-                    : 'Choose a corpus file and its sentence is filled in for you. For anything else, type the ground truth here.'}
+                  : unknownPromptId
+                    ? `The filename names sentence ${unknownPromptId}, but that sentence is not in the ground-truth table. Type it to get WER and CER, or leave blank for transcripts only.`
+                    : file
+                      ? 'This file is not from the corpus, so there is no ground truth to look up. Type it to get WER and CER, or leave blank for transcripts only.'
+                      : 'Choose a corpus file and its sentence is filled in for you. For anything else, type the ground truth here.'}
               </span>
             </div>
           </div>

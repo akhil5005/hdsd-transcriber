@@ -733,3 +733,140 @@ async def test_models_endpoint_lists_three_models_in_order(client, tokens) -> No
 
 async def test_models_endpoint_requires_authentication(client) -> None:
     assert (await client.get("/api/v1/models")).status_code == 401
+
+
+# --- ground truth recognised from the filename ------------------------------
+#
+# The frontend hides the reference box once it recognises a corpus file, so
+# these pin the contract it relies on: an empty reference means "use the
+# corpus sentence", and a typed one still wins. A UI bug once sent stale text
+# from a previous file while the form showed the corpus sentence, scoring the
+# job against something the user could not see.
+
+
+async def _upload_named(client, tokens, wav_bytes, filename, **form):
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    payload = {"model_key": form.pop("model_key", "pretrained"), **form}
+    return await client.post(
+        TRANSCRIPTS,
+        headers=headers,
+        files={"file": (filename, io.BytesIO(wav_bytes), "audio/wav")},
+        data=payload,
+    )
+
+
+async def _seed_prompt(db, prompt_id="H15", text="समय के साथ"):
+    from app.models.prompt import DatasetPrompt
+
+    db.add(
+        DatasetPrompt(
+            prompt_id=prompt_id,
+            romanized="samaya kei saatha",
+            devanagari=text,
+            verified=False,
+        )
+    )
+    await db.commit()
+
+
+async def test_corpus_filename_supplies_ground_truth_when_none_is_typed(
+    client, tokens, wav_bytes, db
+) -> None:
+    await _seed_prompt(db)
+    created = await _upload_named(client, tokens, wav_bytes, "M22_S1_H15_M1.wav")
+    assert created.status_code == 201
+
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    body = (
+        await client.get(f"{TRANSCRIPTS}/{created.json()['job_id']}", headers=headers)
+    ).json()
+
+    assert body["reference_source"] == "dataset"
+    assert body["reference_prompt_id"] == "H15"
+    assert body["reference_verified"] is False
+    assert body["has_reference"] is True
+    assert body["reference_text"] == "समय के साथ"
+
+
+async def test_typed_reference_still_beats_the_corpus_sentence(
+    client, tokens, wav_bytes, db
+) -> None:
+    await _seed_prompt(db)
+    created = await _upload_named(
+        client, tokens, wav_bytes, "M22_S1_H15_M1.wav", reference_text="मेरा अपना वाक्य"
+    )
+
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    body = (
+        await client.get(f"{TRANSCRIPTS}/{created.json()['job_id']}", headers=headers)
+    ).json()
+
+    assert body["reference_source"] == "manual"
+    assert body["reference_prompt_id"] is None
+    assert body["reference_text"] == "मेरा अपना वाक्य"
+
+
+async def test_a_blank_typed_reference_does_not_block_the_corpus_sentence(
+    client, tokens, wav_bytes, db
+) -> None:
+    """Whitespace is not an override; it is an empty box."""
+    await _seed_prompt(db)
+    created = await _upload_named(
+        client, tokens, wav_bytes, "M22_S1_H15_M1.wav", reference_text="   \n  "
+    )
+
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    body = (
+        await client.get(f"{TRANSCRIPTS}/{created.json()['job_id']}", headers=headers)
+    ).json()
+
+    assert body["reference_source"] == "dataset"
+    assert body["reference_prompt_id"] == "H15"
+
+
+async def test_a_non_corpus_filename_gets_no_ground_truth(
+    client, tokens, wav_bytes, db
+) -> None:
+    await _seed_prompt(db)
+    created = await _upload_named(client, tokens, wav_bytes, "holiday-clip.wav")
+
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    body = (
+        await client.get(f"{TRANSCRIPTS}/{created.json()['job_id']}", headers=headers)
+    ).json()
+
+    assert body["reference_source"] is None
+    assert body["has_reference"] is False
+
+
+async def test_exports_carry_the_reference_they_were_scored_against(
+    client, tokens, wav_bytes, db
+) -> None:
+    """A WER with no record of its ground truth is not reproducible."""
+    from app.services.jobs import TranscriptionWorker
+
+    await _seed_prompt(db)
+    created = await _upload_named(client, tokens, wav_bytes, "M22_S1_H15_M1.wav")
+    job_id = created.json()["job_id"]
+    await TranscriptionWorker()._process(uuid.UUID(job_id))
+
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    txt = (
+        await client.get(f"{TRANSCRIPTS}/{job_id}/export?format=txt", headers=headers)
+    ).text
+    assert "समय के साथ" in txt
+    assert "H15" in txt
+
+    payload = (
+        await client.get(f"{TRANSCRIPTS}/{job_id}/export?format=json", headers=headers)
+    ).json()
+    assert payload["reference"]["text"] == "समय के साथ"
+    assert payload["reference"]["source"] == "dataset"
+    assert payload["reference"]["prompt_id"] == "H15"
+
+    csv_body = (
+        await client.get(f"{TRANSCRIPTS}/{job_id}/export?format=csv", headers=headers)
+    ).text
+    assert "reference_text" in csv_body.splitlines()[0]
+    assert "समय के साथ" in csv_body

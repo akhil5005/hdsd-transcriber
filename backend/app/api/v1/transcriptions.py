@@ -350,8 +350,21 @@ async def export_transcription(
     stem = f"transcript-{job.id}"
     rows = sorted(job.transcriptions, key=lambda t: t.model_key)
 
+    # An exported score is unreadable without the sentence it was measured
+    # against, so every format carries the reference and its provenance.
+    reference_label = {
+        "dataset": f"corpus sentence {job.reference_prompt_id}",
+        "manual": "typed by the user",
+    }.get(job.reference_source or "", "none supplied")
+
     if export_format == "txt":
         parts = [f"# {job.media.original_filename if job.media else stem}"]
+        if job.reference_text:
+            parts.append("")
+            parts.append(f"## reference ({reference_label})")
+            parts.append(job.reference_text)
+            if job.reference_source == "dataset" and job.reference_verified is False:
+                parts.append("(not yet verified by a person; scores are provisional)")
         for row in rows:
             parts.append("")
             parts.append(f"## {row.model_key}")
@@ -374,6 +387,12 @@ async def export_transcription(
             "media": {
                 "original_filename": job.media.original_filename if job.media else None,
                 "duration_sec": job.media.duration_sec if job.media else None,
+            },
+            "reference": {
+                "text": job.reference_text,
+                "source": job.reference_source,
+                "prompt_id": job.reference_prompt_id,
+                "verified": job.reference_verified,
             },
             "transcriptions": [
                 {
@@ -409,6 +428,10 @@ async def export_transcription(
             "model_key", "text_raw", "text_normalized", "inference_ms", "rtf",
             "device", "gen_config_hash", "wer", "cer",
             "substitutions", "deletions", "insertions",
+            # Repeated on every row so a filtered or concatenated export never
+            # separates a score from the sentence it was measured against.
+            "reference_text", "reference_source", "reference_prompt_id",
+            "reference_verified",
         ]
     )
     for row in rows:
@@ -417,6 +440,8 @@ async def export_transcription(
                 row.model_key, row.text_raw, row.text_normalized,
                 row.inference_ms, row.rtf, row.device, row.gen_config_hash,
                 row.wer, row.cer, row.substitutions, row.deletions, row.insertions,
+                job.reference_text, job.reference_source,
+                job.reference_prompt_id, job.reference_verified,
             ]
         )
     # BOM so Excel opens Devanagari correctly.
