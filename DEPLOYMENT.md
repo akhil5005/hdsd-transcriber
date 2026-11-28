@@ -2,6 +2,27 @@
 
 Frontend: **Vercel**. Database: **Neon** (managed Postgres). Backend: see below.
 
+## What is live
+
+| | |
+| --- | --- |
+| Frontend | <https://hdsd-transcriber.vercel.app> (Vercel, Hobby) |
+| API | <https://hdsd-transcriber-api.onrender.com> (Render, free) |
+| Database | Neon project `hdsd-transcriber`, AWS us-west-2, free plan |
+
+Both redeploy from `main` automatically. Two settings are easy to get wrong:
+
+- **Vercel Root Directory must be `frontend`.** The repo root holds the backend
+  too, and Vercel reads `render.yaml` and offers to import the API as a second
+  service. Import the `frontend` app alone.
+- **`VITE_API_URL` is inlined at build time**, not read at runtime, so it has to
+  exist before the build. Changing it in the Vercel dashboard does nothing until
+  the next deploy.
+
+CORS needs no change for a `*.vercel.app` domain -- `CORS_ORIGIN_REGEX` in
+`render.yaml` already matches one. A custom domain would have to be added to
+`CORS_ORIGINS` on the Render service.
+
 ## What the backend actually needs
 
 | Resource | Requirement | Why |
