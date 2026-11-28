@@ -57,6 +57,38 @@ A stopped instance bills only the disk (~$1.60/month) and the Elastic IP
 restart; without it every restart would need a new Caddyfile and a new
 `VITE_API_URL`.
 
+### Demo day: bringing it back
+
+The instance is normally **stopped**. Everything -- Python 3.11, torch, the
+941 MB of weights, Caddy, the certificate, the systemd unit -- lives on the
+disk and survives, so there is nothing to reinstall.
+
+Start it about **15 minutes before** you need it:
+
+1. EC2 console -> Instances -> select `hdsd-transcriber-api` -> Instance state
+   -> **Start instance**. (Or `aws ec2 start-instances --instance-ids
+   i-0423b69eb0b53c20b`.)
+2. Wait ~60 s. `hdsd-api` and `caddy` are both enabled at boot, so they come up
+   on their own; `hdsd-api` runs `alembic upgrade head` first.
+3. Confirm the address is unchanged and the API is healthy:
+
+   ```bash
+   curl -s https://35-168-45-255.sslip.io/api/v1/health
+   ```
+
+   Expect `"status":"ok"`, `"inference_enabled":true`, `"database":{"ok":true}`.
+4. **Warm it up.** The first transcription in a fresh process spends ~80 s
+   loading three Whisper variants before it decodes anything, and the UI only
+   says "Working...". Run one throwaway job yourself so the models are
+   resident; after that a short clip takes ~50 s.
+
+Nothing else changes: the Elastic IP keeps the hostname and certificate valid,
+and Vercel keeps pointing at it, so the frontend needs no redeploy.
+
+**While it is stopped the deployed site shows the red "cannot reach the
+backend" banner**, because the browser cannot reach the API at all. That is
+expected -- do not share the link until step 3 passes.
+
 **The Free Plan ends six months after account creation**, and the account is
 closed or starts billing at that point. Railway Hobby ($5/month) is the
 cheaper long-term home if this needs to stay up.
