@@ -7,8 +7,52 @@ Frontend: **Vercel**. Database: **Neon** (managed Postgres). Backend: see below.
 | | |
 | --- | --- |
 | Frontend | <https://hdsd-transcriber.vercel.app> (Vercel, Hobby) |
-| API | <https://hdsd-transcriber-api.onrender.com> (Render, free) |
+| API (inference) | <https://35-168-45-255.sslip.io> (AWS EC2 `m7i-flex.large`, us-east-1) |
+| API (benchmark only, no weights) | <https://hdsd-transcriber-api.onrender.com> (Render free, kept as a fallback) |
 | Database | Neon project `hdsd-transcriber`, AWS us-west-2, free plan |
+
+### Why there are two API hosts
+
+Render's free instance is 512 MB and cannot hold Whisper-small, so it runs
+`INFERENCE_ENABLED=false` and transcription returns 503 there. The EC2 box has
+8 GB and the real checkpoints, so it is the one that transcribes. Both share
+the same Neon database, so history and the benchmark are identical on either.
+
+### The EC2 host
+
+| | |
+| --- | --- |
+| Instance | `m7i-flex.large`, 2 vCPU / 8 GiB, Ubuntu 24.04, 20 GB gp3 |
+| Why not `t3.medium` | the AWS Free Plan blocks it; only t3.micro/small, t4g.micro/small and the two flex larges are allowed, and only the flex larges have enough RAM |
+| Address | Elastic IP `35.168.45.255` so stop/start does not change it |
+| TLS | Caddy + Let's Encrypt on `35-168-45-255.sslip.io`. `sslip.io` resolves a dashed IP to that IP, so a real certificate needs no domain registration |
+| Service | `hdsd-api.service`, runs `alembic upgrade head` then uvicorn on 127.0.0.1:8000 |
+| Weights | `~/research/full_ft` and `~/research/lora`, uploaded by scp and checked with sha256 |
+| Speed | CPU only: roughly 50 s for a 4 s clip across all three models (RTF 1.5-2.2) |
+
+**HTTPS is not optional.** The frontend is HTTPS on Vercel, and a browser
+blocks requests from an HTTPS page to a plain-HTTP backend as mixed content.
+A bare EC2 IP cannot get a trusted certificate, which is what `sslip.io`
+solves.
+
+### Cost control
+
+`m7i-flex.large` is roughly $0.09/hour, about $69/month running continuously,
+so $200 of Free Plan credit lasts about three months. Stop it between demos:
+
+```bash
+aws ec2 stop-instances  --instance-ids i-0423b69eb0b53c20b
+aws ec2 start-instances --instance-ids i-0423b69eb0b53c20b
+```
+
+A stopped instance bills only the disk (~$1.60/month) and the Elastic IP
+(~$3.60/month). The Elastic IP means the hostname and certificate survive the
+restart; without it every restart would need a new Caddyfile and a new
+`VITE_API_URL`.
+
+**The Free Plan ends six months after account creation**, and the account is
+closed or starts billing at that point. Railway Hobby ($5/month) is the
+cheaper long-term home if this needs to stay up.
 
 Both redeploy from `main` automatically. Two settings are easy to get wrong:
 
