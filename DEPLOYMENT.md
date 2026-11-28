@@ -15,6 +15,34 @@ Frontend: **Vercel**. Database: **Neon** (managed Postgres). Backend: see below.
 is kept as an API-only deployment with `INFERENCE_ENABLED=false`: auth, the research
 benchmark, history and exports work; the transcription endpoints return 503.
 
+## Seeding a hosted database
+
+Migrations run on every deploy (`alembic upgrade head` is the first half of the
+start command), but they only create empty tables. The benchmark figures come
+from the `final_v3` CSVs, which live in the research archive and are therefore
+not on the host. Seed from a machine that *does* have the archive, pointing at
+the hosted database:
+
+```powershell
+$env:DATABASE_URL = "<the provider's connection string>"
+python -m app.scripts.seed_benchmark
+$env:DATABASE_URL = $null
+```
+
+That writes 21 per-run rows, 9 seed-spread rows, 7 efficiency rows and the
+three-model registry — aggregate metrics only (WER/CER percentages, parameter
+counts, checkpoint sizes), no transcripts, audio or weights. It is idempotent,
+so re-run it after a schema change. Without it the benchmark endpoints answer
+200 with empty charts rather than failing.
+
+**Corpus sentences are deliberately not seeded to a hosted database.**
+`data/hdsd_prompts.csv` is gitignored, and on a host where transcription is
+disabled the prompts have nothing to score anyway.
+
+Use the provider's **direct** connection string, not a pooled one: asyncpg
+keeps prepared statements, which PgBouncer in transaction mode rejects, and
+the engine sets no `statement_cache_size=0`.
+
 ## Hosts that can run the models
 
 Checked October 2026. Prices are list prices for the smallest configuration that fits.
