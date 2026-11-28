@@ -12,7 +12,12 @@ from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.research_assets import ResearchAssetError
-from app.models import BenchmarkMetric, ModelRegistry
+from app.models import (
+    BenchmarkEfficiency,
+    BenchmarkMetric,
+    BenchmarkSeedSpread,
+    ModelRegistry,
+)
 from app.services import benchmark as bench
 
 #: The published figures from PROMPT.md section 5a, WER/CER in percent.
@@ -315,3 +320,79 @@ async def test_summary_includes_seed_spread_and_efficiency(client, db, tokens) -
     assert all(
         {"substitutions", "deletions", "insertions"} <= set(row) for row in breakdown
     )
+
+
+# --- serving must never read the research archive ---------------------------
+@needs_archive
+async def test_seeding_persists_both_csv_derived_tables(db) -> None:
+    """model_summary.csv and efficiency.csv must land in the database.
+
+    Until they did, /summary read them off disk on every request.
+    """
+    result = await bench.seed_all(db, Settings())
+
+    assert result["benchmark_seed_spread"]["total"] == 9
+    assert result["benchmark_efficiency"]["total"] == 7
+
+    spread = (await db.execute(select(BenchmarkSeedSpread))).scalars().all()
+    efficiency = (await db.execute(select(BenchmarkEfficiency))).scalars().all()
+    assert len(spread) == 9
+    assert len(efficiency) == 7
+    assert {row.model_key for row in spread} == {"pretrained", "full_ft", "lora"}
+
+
+@needs_archive
+async def test_summary_is_served_without_touching_the_archive(
+    client, db, tokens, monkeypatch
+) -> None:
+    """A /summary request must not read the CSVs, even when they exist.
+
+    Regression: seed_spread and efficiency were built by calling the CSV
+    readers per request, so the endpoint 500d on every host without the
+    research archive -- including the documented Render deployment -- and
+    made reading patient-derived research files part of serving a page.
+
+    Seed first, then make any archive read explode: the response must be
+    unaffected.
+    """
+    await bench.seed_all(db, Settings())
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    def explode(*args, **kwargs):
+        raise AssertionError("serving /summary must not read the archive")
+
+    monkeypatch.setattr(bench, "read_model_summary", explode)
+    monkeypatch.setattr(bench, "read_efficiency", explode)
+    monkeypatch.setattr(bench, "read_per_run", explode)
+
+    response = await client.get("/api/v1/benchmark/summary", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["seed_spread"]) == 9
+    assert len(body["efficiency"]) == 7
+
+
+@needs_archive
+async def test_summary_keeps_the_research_row_order(client, db, tokens) -> None:
+    """Order is read by the charts, so it must not become alphabetical.
+
+    seed_spread goes case by case with pretrained before the adapted models;
+    efficiency goes model by model with seeds ascending (42, 123, 2026 -- a
+    column sort would give 123, 2026, 42).
+    """
+    await bench.seed_all(db, Settings())
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    body = (await client.get("/api/v1/benchmark/summary", headers=headers)).json()
+
+    assert [row["model_key"] for row in body["seed_spread"]] == [
+        "pretrained", "full_ft", "lora",
+    ] * 3
+    assert [row["split"] for row in body["seed_spread"][:3]] == ["test"] * 3
+
+    full_ft_seeds = [
+        row["seed"] for row in body["efficiency"] if row["model_key"] == "full_ft"
+    ]
+    assert full_ft_seeds == sorted(full_ft_seeds)
+    assert body["efficiency"][0]["model_key"] == "pretrained"

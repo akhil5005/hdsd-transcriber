@@ -22,7 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, settings
 from app.core.logging import get_logger
 from app.core.research_assets import benchmark_csv
-from app.models.benchmark import BenchmarkMetric
+from app.models.benchmark import (
+    BenchmarkEfficiency,
+    BenchmarkMetric,
+    BenchmarkSeedSpread,
+)
 from app.models.enums import ModelKey, ModelKind
 from app.models.registry import ModelRegistry
 
@@ -302,10 +306,68 @@ async def seed_models_registry(
     return {"inserted": inserted, "updated": updated, "total": len(specs)}
 
 
+async def _upsert(
+    db: AsyncSession,
+    model: type,
+    rows: list[dict[str, Any]],
+    identity: tuple[str, ...],
+    label: str,
+) -> dict[str, int]:
+    """Upsert ``rows`` keyed on ``identity``. Idempotent, like the others."""
+    existing = {
+        tuple(getattr(obj, field) for field in identity): obj
+        for obj in (await db.execute(select(model))).scalars()
+    }
+
+    inserted = updated = 0
+    for row in rows:
+        key = tuple(row[field] for field in identity)
+        obj = existing.get(key)
+        if obj is None:
+            db.add(model(**row))
+            inserted += 1
+            continue
+        for field, value in row.items():
+            setattr(obj, field, value)
+        updated += 1
+
+    await db.commit()
+    logger.info("Seeded %s: %d inserted, %d updated", label, inserted, updated)
+    return {"inserted": inserted, "updated": updated, "total": len(rows)}
+
+
+async def seed_seed_spread(
+    db: AsyncSession, config: Settings | None = None
+) -> dict[str, int]:
+    """Persist ``model_summary.csv`` so /summary need not read the archive."""
+    return await _upsert(
+        db,
+        BenchmarkSeedSpread,
+        read_model_summary(config or settings),
+        ("model_key", "split"),
+        "benchmark_seed_spread",
+    )
+
+
+async def seed_efficiency(
+    db: AsyncSession, config: Settings | None = None
+) -> dict[str, int]:
+    """Persist ``efficiency.csv`` so /summary need not read the archive."""
+    return await _upsert(
+        db,
+        BenchmarkEfficiency,
+        read_efficiency(config or settings),
+        ("model_key", "run"),
+        "benchmark_efficiency",
+    )
+
+
 async def seed_all(
     db: AsyncSession, config: Settings | None = None
 ) -> dict[str, dict[str, int]]:
     return {
         "models_registry": await seed_models_registry(db, config),
         "benchmark_metrics": await seed_benchmark_metrics(db, config),
+        "benchmark_seed_spread": await seed_seed_spread(db, config),
+        "benchmark_efficiency": await seed_efficiency(db, config),
     }

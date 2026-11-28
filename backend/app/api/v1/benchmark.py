@@ -1,9 +1,11 @@
 """Research benchmark endpoints (section 5a).
 
-Served from the seeded ``benchmark_metrics`` table, not from the CSVs, so a
-request never touches the research archive. ``/summary`` reshapes the same
-rows for the charts; the three evaluation cases stay separate everywhere
-because pooling them would be scientifically wrong.
+Served from the seeded tables -- ``benchmark_metrics``,
+``benchmark_seed_spread`` and ``benchmark_efficiency`` -- not from the CSVs,
+so a request never touches the research archive and the endpoints work on a
+host that has no archive at all. ``/summary`` reshapes the same rows for the
+charts; the three evaluation cases stay separate everywhere because pooling
+them would be scientifically wrong.
 """
 
 from __future__ import annotations
@@ -12,7 +14,11 @@ from fastapi import APIRouter, Query
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.benchmark import BenchmarkMetric
+from app.models.benchmark import (
+    BenchmarkEfficiency,
+    BenchmarkMetric,
+    BenchmarkSeedSpread,
+)
 from app.models.registry import ModelRegistry
 from app.schemas.benchmark import (
     BenchmarkResponse,
@@ -95,6 +101,36 @@ async def get_benchmark_summary(_: CurrentUser, db: DbSession) -> BenchmarkSumma
         for entry in (await db.execute(select(ModelRegistry))).scalars()
     }
 
+    # Both of these used to be read from the research archive's CSVs on every
+    # request, which 500s on any host without that archive -- and quietly made
+    # a read of patient-derived research files part of serving a page. They are
+    # seeded into their own tables now, like every other benchmark figure.
+    case_order = {case.split: index for index, case in enumerate(bench.EVALUATION_CASES)}
+
+    def model_rank(model_key: str) -> int:
+        return MODEL_ORDER.index(model_key) if model_key in MODEL_ORDER else 99
+
+    # Ordered in Python, not SQL: these two lists are read in order by the
+    # charts, and the meaningful order is the research one -- evaluation case,
+    # then pretrained before the adapted models, then ascending seed. Sorting
+    # by column would give alphabetical nonsense (full_ft first, seed 123
+    # before 42).
+    spread_rows = sorted(
+        (await db.execute(select(BenchmarkSeedSpread))).scalars().all(),
+        key=lambda row: (
+            case_order.get(row.split, 99),
+            model_rank(row.model_key),
+        ),
+    )
+    efficiency_rows = sorted(
+        (await db.execute(select(BenchmarkEfficiency))).scalars().all(),
+        key=lambda row: (
+            model_rank(row.model_key),
+            row.seed if row.seed is not None else -1,
+            row.run,
+        ),
+    )
+
     by_key_split = {(row.model_key, row.split): row for row in selected}
     cases = bench.EVALUATION_CASES
 
@@ -122,7 +158,7 @@ async def get_benchmark_summary(_: CurrentUser, db: DbSession) -> BenchmarkSumma
         cer_by_case=series("cer"),
         macro_speaker_wer_by_case=series("macro_speaker_wer"),
         seed_spread=[
-            SeedSpread(**row) for row in bench.read_model_summary()
+            SeedSpread.model_validate(row) for row in spread_rows
         ],
         error_breakdown=[
             ErrorBreakdown(
@@ -144,7 +180,7 @@ async def get_benchmark_summary(_: CurrentUser, db: DbSession) -> BenchmarkSumma
             for case in cases
             for key in MODEL_ORDER
         ],
-        efficiency=[EfficiencyRow(**row) for row in bench.read_efficiency()],
+        efficiency=[EfficiencyRow.model_validate(row) for row in efficiency_rows],
         selected_runs=bench.selected_runs(),
         notes=SUMMARY_NOTES,
     )

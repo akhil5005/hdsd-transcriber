@@ -35,7 +35,7 @@ class BenchmarkRow(BaseModel):
 class SeedSpread(BaseModel):
     """Mean +/- sample SD across training seeds, for the error-bar view."""
 
-    model_config = ConfigDict(protected_namespaces=())
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     model_key: str
     split: str
@@ -51,7 +51,7 @@ class SeedSpread(BaseModel):
 
 
 class EfficiencyRow(BaseModel):
-    model_config = ConfigDict(protected_namespaces=())
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     model_key: str
     run: str

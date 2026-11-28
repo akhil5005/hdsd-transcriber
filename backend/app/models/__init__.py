@@ -1,7 +1,11 @@
 """ORM models. Importing this package registers every table on ``Base``."""
 
 from app.db.base import Base
-from app.models.benchmark import BenchmarkMetric
+from app.models.benchmark import (
+    BenchmarkEfficiency,
+    BenchmarkMetric,
+    BenchmarkSeedSpread,
+)
 from app.models.enums import (
     JobMode,
     JobStatus,
@@ -17,7 +21,9 @@ from app.models.user import RefreshToken, User
 
 __all__ = [
     "Base",
+    "BenchmarkEfficiency",
     "BenchmarkMetric",
+    "BenchmarkSeedSpread",
     "DatasetPrompt",
     "JobMode",
     "JobStatus",
