@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
@@ -127,3 +128,24 @@ def test_downgrade_removes_every_table(tmp_path) -> None:
     remaining = set(sa.inspect(engine).get_table_names()) - {"alembic_version"}
     assert remaining == set()
     engine.dispose()
+
+
+def test_libpq_url_reaches_asyncpg_not_psycopg2() -> None:
+    """A hosted provider's URL must drive migrations through asyncpg.
+
+    Regression: env.py handed `sqlalchemy.url` to SQLAlchemy verbatim, so the
+    bare `postgresql://` scheme Neon and Render hand out selected the default
+    psycopg2 dialect. Nothing installs psycopg2 here, so `alembic upgrade head`
+    -- the first half of the deploy start command -- died with
+    ModuleNotFoundError before uvicorn ever ran.
+
+    Port 1 refuses immediately: reaching a *connection* error is the proof that
+    dialect selection and the libpq query parameters were handled.
+    """
+    config = _alembic_config("postgresql://u:p@127.0.0.1:1/db?sslmode=require")
+
+    with pytest.raises(Exception) as excinfo:  # noqa: PT011 -- driver-specific
+        command.upgrade(config, "head")
+
+    assert "psycopg2" not in str(excinfo.value)
+    assert not isinstance(excinfo.value, ModuleNotFoundError)
