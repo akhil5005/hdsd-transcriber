@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.config import settings
 from app.models.registry import ModelRegistry
 from app.schemas.transcription import ModelInfo
 from app.services.transcription import (
@@ -60,9 +61,27 @@ async def list_models(_: CurrentUser, db: DbSession) -> list[ModelInfo]:
 
 @router.get("/models/device", include_in_schema=False)
 async def device_info(_: CurrentUser) -> dict[str, object]:
-    """What the UI needs for the 'CPU will be slower' notice."""
+    """What the UI needs for the 'CPU will be slower' notice.
+
+    Answers without touching torch when inference is disabled. Both
+    ``resolve_device()`` and ``peak_vram()`` import torch, which a host
+    running requirements-deploy.txt does not have -- this endpoint used to
+    raise ModuleNotFoundError there, and since the frontend treats any
+    failure here as "backend unreachable", one 500 made a working
+    deployment look entirely down.
+    """
+    if not settings.inference_enabled:
+        return {
+            "inference_enabled": False,
+            "resolved_device": None,
+            "loaded": [],
+            "gen_config_hash": None,
+            "vram": None,
+        }
+
     service = get_transcription_service()
     return {
+        "inference_enabled": True,
         "resolved_device": resolve_device(),
         "loaded": service.loaded_keys(),
         "gen_config_hash": service.shared_gen_config_hash,

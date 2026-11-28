@@ -42,7 +42,11 @@ export default function Layout() {
     navigate('/login', { replace: true })
   }
 
-  const cpuOnly = device && device.resolved_device !== 'cuda'
+  // A host with INFERENCE_ENABLED=false has no device at all. Without this
+  // it fails the `!== 'cuda'` test and gets described as CPU-only, promising
+  // slow transcription on a host that cannot transcribe at all.
+  const inferenceDisabled = device?.inference_enabled === false
+  const cpuOnly = device && !inferenceDisabled && device.resolved_device !== 'cuda'
 
   return (
     <div className="app">
@@ -80,6 +84,14 @@ export default function Layout() {
             <Banner kind="error">
               Cannot reach the backend. Start it with{' '}
               <code>uvicorn app.main:app --reload</code> in <code>backend/</code>.
+            </Banner>
+          ) : null}
+
+          {inferenceDisabled ? (
+            <Banner kind="warn">
+              This deployment serves the research benchmark, history and
+              exports only — it has no model weights, so transcribing returns
+              an error. Run the backend locally to transcribe.
             </Banner>
           ) : null}
 
