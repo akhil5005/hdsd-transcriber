@@ -8,15 +8,22 @@ Frontend: **Vercel**. Database: **Neon** (managed Postgres). Backend: see below.
 | --- | --- |
 | Frontend | <https://hdsd-transcriber.vercel.app> (Vercel, Hobby) |
 | API (inference) | <https://35-168-45-255.sslip.io> (AWS EC2 `m7i-flex.large`, us-east-1) |
-| API (benchmark only, no weights) | <https://hdsd-transcriber-api.onrender.com> (Render free, kept as a fallback) |
+| API (superseded) | <https://hdsd-transcriber-api.onrender.com> (Render free -- **its DATABASE_URL is stale**, see below) |
 | Database | Neon project `hdsd-transcriber`, AWS us-west-2, free plan |
 
 ### Why there are two API hosts
 
 Render's free instance is 512 MB and cannot hold Whisper-small, so it runs
 `INFERENCE_ENABLED=false` and transcription returns 503 there. The EC2 box has
-8 GB and the real checkpoints, so it is the one that transcribes. Both share
-the same Neon database, so history and the benchmark are identical on either.
+8 GB and the real checkpoints, so it is the one that transcribes, and the
+frontend points at it.
+
+**Render is no longer wired up.** The Neon password was rotated after the EC2
+move, and only EC2 was updated, so Render's `DATABASE_URL` is stale and its
+`/health` reports the database as down. Nothing depends on it. Either paste the
+current connection string into its `DATABASE_URL` to revive it as a
+benchmark-only mirror, or suspend the service. Leaving it as-is is harmless but
+will look broken if someone opens that URL.
 
 ### The EC2 host
 
